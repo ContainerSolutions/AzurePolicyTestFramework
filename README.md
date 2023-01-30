@@ -4,46 +4,66 @@ This repository is a command line tool for testing Azure Policies.
 
 ## Usage
 
-For each test case, the following directory structure must be created:
-
-```txt
-+-- your_test_name
-|   +-- setup
-|   |   +-- terraform files to setup the policy
-|   +-- terraform files for test cases
+To use this framework, simply run a normal `go test call` passing the following variables:
+```
+export TEST_PATTERN="run-this-test|!not-this-one"
+export TEST_CONFIG_PATH="test"
+go test -v -timeout=30m ./policy_test.go
 ```
 
-Note: the definition of the policy and the content of the terraform test code is up to you. The folders `policy_defintions` and `test` aim to be used as examples.
-You may define policies in Json (see `policy_defintions/location`), in TF (any other definition), in ARM template or whatever suits your need as long as you are able to wrap it in Terraform.
+Any valid YAML within `TEST_CONFIG_PATH` folder will recursively be added as part of the test suite. Later on, the tests that are ran are filtered according to the chosen `TEST_PATTERN`. By default, `TEST_CONFIG_PATH="./"` and `TEST_PATTERN=".*"`
 
-Additionally, a `.yaml` configuration file must describe the test as following:
+Here is an example YAML to configure the suite
 
 ```yaml
-name: Name of the test
 cases:
-- variables:
-  - key: variable name in TF
-    value: val
-  errorExpected: true
-- variables:
-  - key: variable name in TF
-    value: val2
-  errorExpected: false
-terraformDir: relative path to the folder structure described above
-errorMessage: Error message from Azure (ex 'Error creating Network Interface')
-errorCode: Error code from Azure (ex 'Error Code=\"RequestDisallowedByPolicy\"')
+- name: test-deploy-if-not-exists
+  setup:
+    path: example/defaultSetup
+    variables:
+      name: "mypolicy"
+      location: "westeurope"
+      policy_rule_definition: "../../policy_definitions/vnet-deploy-subnet.rules.json"
+      policy_params_definition: "../../policy_definitions/vnet-deploy-subnet.params.json"
+      policy_params_values: |
+        {
+        "effect": {"value": "DeployIfNotExists"},
+        "subnetAddress": {"value": "10.0.1.0/24"}
+        }
+  test:
+    path: example/test
+    variables:
+        address_space: ["10.0.0.0/16"]
+  after:
+    waitBeforeRunning: "1m"
+    path: example/after
+- name: test-deny
+  setup:
+    path: example/defaultSetup
+    variables:
+      name: "mypolicy"
+      location: "westeurope"
+      policy_rule_definition: "../../policy_definitions/vnet-deploy-subnet.rules.json"
+      policy_params_definition: "../../policy_definitions/vnet-deploy-subnet.params.json"
+      policy_params_values: |
+        {
+        "effect": {"value": "Deny"},
+        "subnetAddress": {"value": "10.0.1.0/24"}
+        }
+  test:
+    path: example/test
+    variables:
+        address_space: ["10.0.0.0/16"]
+    errorMessage: "mypolicy"
 ```
 
-To run from the source code:
-
-```bash
-go run ./cmd/policyTester/ -config ./test/ -test.v
-```
-
-Note: any args from the `go test` command are available for use. For instance:
-
-```bash
-go run ./cmd/policyTester/ -config ./test/ -test.v -test.parallel=10 -test.run Location
+Each case is composed of a `setup`, a `test` and an `after` block. Only the `setup` block is mandatory. Each block accepts the same configruation:
+```yaml
+  path: string # path to terraform folder
+  variables: {} #Optional - variables for the terraform apply
+  varFiles: [] #Optional - list of var files for terraform apply
+  errorMessage: string #Optional - If an error is expected, the error message to validate the correct behavior
+  waitBeforeRunning: string #Optional - wait that many duration before running terraform Apply (for DeployIfNotExists tests)
 ```
 
 ## About Azure Policies
